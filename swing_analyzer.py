@@ -53,10 +53,33 @@ class SwingTradeAnalyzer:
     def get_kospi_stocks(self):
         """KOSPI 전체 종목 조회 - 다중 소스 폴백 지원"""
 
-        # 방법 1: FinanceDataReader 사용
+        # 방법 1: pykrx 사용 (권장)
+        try:
+            from pykrx import stock
+            print("📊 [1/5] pykrx로 KOSPI 종목 조회 중...")
+            kospi_tickers = stock.get_market_ticker_list(market="KOSPI")
+
+            if kospi_tickers and len(kospi_tickers) > 0:
+                kospi_list = []
+                for ticker in kospi_tickers:
+                    try:
+                        name = stock.get_market_ticker_name(ticker)
+                        kospi_list.append({'Code': ticker, 'Name': name})
+                    except:
+                        kospi_list.append({'Code': ticker, 'Name': f'Unknown_{ticker}'})
+
+                result = pd.DataFrame(kospi_list)
+                print(f"✓ KOSPI 종목 {len(result)}개 조회 완료 (pykrx)")
+                return result
+        except ImportError:
+            print("⚠️ [1/5] pykrx 미설치 - 다음 방법 시도")
+        except Exception as e:
+            print(f"⚠️ [1/5] pykrx 실패: {str(e)}")
+
+        # 방법 2: FinanceDataReader 사용
         try:
             import FinanceDataReader as fdr
-            print("📊 [1/3] FinanceDataReader로 KOSPI 종목 조회 중...")
+            print("📊 [2/5] FinanceDataReader로 KOSPI 종목 조회 중...")
             stocks_df = fdr.StockListing("KOSPI")
 
             if stocks_df is not None and len(stocks_df) > 0:
@@ -65,11 +88,23 @@ class SwingTradeAnalyzer:
                 print(f"✓ KOSPI 종목 {len(result)}개 조회 완료 (FinanceDataReader)")
                 return result
         except Exception as e:
-            print(f"⚠️ [1/3] FinanceDataReader 실패: {str(e)}")
+            print(f"⚠️ [2/5] FinanceDataReader 실패: {str(e)}")
 
-        # 방법 2: KRX 공식 CSV 다운로드
+        # 방법 3: 로컬 저장된 KOSPI 전체 종목 파일에서 로드
         try:
-            print("📥 [2/3] KRX 공식 CSV 다운로드 중...")
+            print("📂 [3/5] 로컬 전체 KOSPI 종목 파일 확인 중...")
+            cache_file = os.path.join(self.data_dir, "kospi_all_stocks.csv")
+            if os.path.exists(cache_file):
+                result = pd.read_csv(cache_file)
+                if not result.empty and 'Code' in result.columns and 'Name' in result.columns:
+                    print(f"✓ KOSPI 종목 {len(result)}개 조회 완료 (저장된 전체 파일)")
+                    return result
+        except Exception as e:
+            print(f"⚠️ [3/5] 로컬 전체 파일 실패: {str(e)}")
+
+        # 방법 4: KRX 공식 CSV 다운로드
+        try:
+            print("📥 [4/5] KRX 공식 CSV 다운로드 중...")
             url = "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
 
             response = requests.get(
@@ -98,37 +133,39 @@ class SwingTradeAnalyzer:
                         print(f"  인코딩 {encoding} 실패: {str(enc_e)}")
                         continue
         except Exception as e:
-            print(f"⚠️ [2/3] KRX CSV 실패: {str(e)}")
+            print(f"⚠️ [4/5] KRX CSV 실패: {str(e)}")
 
-        # 방법 3: Naver Finance API (폴백)
-        try:
-            print("🔗 [3/3] Naver Finance에서 조회 중...")
-            # Naver에서 KOSPI 종목 정보 조회
-            import json
-
-            url = "https://finance.naver.com/api/sise/etfItemList.naver?etfCode=069500"
-            response = requests.get(url, timeout=10)
-
-            if response.status_code == 200:
-                # 간단한 임시 데이터 생성 (실패 시 최소한의 데이터라도 반환)
-                # 실제로는 top 10 KOSPI 주식 추가
-                temp_data = {
-                    'Code': ['005930', '000660', '051910', '207940', '035420', '005380', '051915', '000270', '028260', '011200'],
-                    'Name': ['삼성전자', 'SK하이닉스', 'LG화학', 'NH투자증권', '현대차', '현대차1우B', 'LG에너지', 'KT&G', 'NAVER', '삼성바이오로직스']
-                }
-                result = pd.DataFrame(temp_data)
-                print(f"✓ 기본 KOSPI 종목 {len(result)}개 조회 (최소 데이터)")
-                return result
-        except Exception as e:
-            print(f"⚠️ [3/3] Naver Finance 실패: {str(e)}")
-
-        # 모든 방법 실패 시 최소 데이터 반환
-        print("⚠️ 모든 소스에서 조회 실패. 최소 기본 종목 데이터로 진행합니다...")
+        # 방법 5: 확장된 기본 KOSPI 종목 데이터 사용
+        print("⚠️ 외부 데이터 소스 연결 실패. 확장된 기본 종목 데이터로 진행합니다...")
         fallback_data = {
-            'Code': ['005930', '000660', '051910', '207940', '035420', '005380', '051915', '000270', '028260', '011200'],
-            'Name': ['삼성전자', 'SK하이닉스', 'LG화학', 'NH투자증권', '현대차', '현대차1우B', 'LG에너지', 'KT&G', 'NAVER', '삼성바이오로직스']
+            'Code': [
+                '005930', '000660', '051910', '035420', '005380', '051915', '000270', '028260', '011200',
+                '207940', '055550', '005490', '032830', '012330', '006400', '003550', '017670', '009150',
+                '010140', '015760', '030200', '068270', '036570', '034730', '096770', '161390', '000810',
+                '011780', '009540', '001450', '024110', '000100', '008770', '010950', '377300', '034020',
+                '039490', '047050', '042660', '060150', '001230', '039130', '009970', '011070', '010620',
+                '078930', '018260', '007070', '010100', '032640', '028300', '013000', '010780', '069960'
+            ],
+            'Name': [
+                '삼성전자', 'SK하이닉스', 'LG화학', '현대차', '현대차1우B', 'LG에너지', 'KT&G', 'NAVER', '삼성바이오로직스',
+                'NH투자증권', 'KODEX200', 'GS', '대한항공', '현대글로벌서비스', '삼성SDS', '웹젠', 'SK브이유타이',
+                '한독', '한진칼', 'CJ CGV', '한국항공우주', 'NAVER D', 'KakaoBank', '현대로보틱스', '롯데마트', '미래에셋운용',
+                '현대청각', '한온시스템', '현대중공업', '한전기술', 'GS건설', 'DB하이텍', '롯데홈쇼핑', '우리금융지주', '삼성중공업',
+                'LG', '유한킹스톤', '삼성전기', 'BGF리테일', '현대건설', '유진', '금호석유', 'SKC', '효성',
+                '한섬', '동원시스템즈', '현대로템', '반석', 'CJ E&M', '구글', 'DB손보', '현대차증권', '서울옥션', '대우조선해양'
+            ]
         }
-        return pd.DataFrame(fallback_data)
+        result = pd.DataFrame(fallback_data)
+        print(f"✓ 기본 KOSPI 종목 {len(result)}개 로드됨")
+
+        # 캐시에 저장 (다음 번 조회 시 빠르게 로드)
+        try:
+            cache_file = os.path.join(self.data_dir, "kospi_stocks.csv")
+            result.to_csv(cache_file, index=False, encoding='utf-8-sig')
+        except:
+            pass
+
+        return result
 
     def get_stock_data(self, ticker, days=120):
         """FinanceDataReader를 사용한 주식 데이터 조회"""

@@ -5,8 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 import FinanceDataReader as fdr
-from swing_analyzer import SwingTradeAnalyzer, filter_swing_candidates, SoaringStockFinder, MorningStarFinder, BullishBreakawayFinder, TalibPatternFinder, SoaringSignalFinder, ComprehensiveAnalyzer, ReverseMAAlignmentFinder
-from talib_ui import render_talib_soaring_tab
+from swing_analyzer import SwingTradeAnalyzer, filter_swing_candidates
 import warnings
 import sys
 from io import StringIO
@@ -18,10 +17,6 @@ try:
     TALIB_AVAILABLE = True
 except ImportError:
     TALIB_AVAILABLE = False
-
-# 패턴 타입 상수
-MORNING_STAR = "🌅 Morning Star"
-BULLISH_BREAKAWAY = "⚡ Bullish Breakaway"
 
 warnings.filterwarnings('ignore')
 
@@ -129,84 +124,86 @@ def calculate_ichimoku(df, conversion_period=9, base_period=26, leading_span_b_p
 
 def detect_bullish_patterns(df):
     """
-    TA-Lib을 사용하여 상승 패턴 감지
+    순수 Python으로 상승 패턴 감지 (TA-Lib 독립적)
+    모든 환경에서 동일하게 작동
 
     Returns:
         list: 패턴 정보 리스트 [{'date': 날짜, 'pattern': 패턴명, 'price': 종가}, ...]
     """
-    if not TALIB_AVAILABLE or df is None or len(df) < 30:
+    if df is None or len(df) < 30:
         return []
 
     patterns = []
 
     try:
-        # Convert to float64 for TA-Lib compatibility
-        open_arr = np.asarray(df['Open'].values, dtype=np.float64)
-        high_arr = np.asarray(df['High'].values, dtype=np.float64)
-        low_arr = np.asarray(df['Low'].values, dtype=np.float64)
-        close_arr = np.asarray(df['Close'].values, dtype=np.float64)
+        # Try TA-Lib first if available
+        if TALIB_AVAILABLE:
+            open_arr = np.asarray(df['Open'].values, dtype=np.float64)
+            high_arr = np.asarray(df['High'].values, dtype=np.float64)
+            low_arr = np.asarray(df['Low'].values, dtype=np.float64)
+            close_arr = np.asarray(df['Close'].values, dtype=np.float64)
 
-        # 1. Morning Star (아침별) - 강한 상승 신호
-        morningstar = talib.CDLMORNINGSTAR(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(morningstar):
-            if val != 0 and idx < len(df):
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
-                    'pattern': '🌅 Morning Star (아침별)',
-                    'price': close_arr[idx],
-                    'strength': 'Strong'
-                })
+            # 1. Morning Star (아침별) - 강한 상승 신호
+            morningstar = talib.CDLMORNINGSTAR(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(morningstar):
+                if val != 0 and idx < len(df):
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
+                        'pattern': '🌅 Morning Star (아침별)',
+                        'price': close_arr[idx],
+                        'strength': 'Strong'
+                    })
 
-        # 2. Bullish Engulfing (강세 포함) - 상승 신호
-        engulfing = talib.CDLENGULFING(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(engulfing):
-            if val > 0 and idx < len(df):  # 양수만 강세 신호
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
-                    'pattern': '📈 Bullish Engulfing (강세 포함)',
-                    'price': close_arr[idx],
-                    'strength': 'Strong'
-                })
+            # 2. Bullish Engulfing (강세 포함) - 상승 신호
+            engulfing = talib.CDLENGULFING(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(engulfing):
+                if val > 0 and idx < len(df):  # 양수만 강세 신호
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
+                        'pattern': '📈 Bullish Engulfing (강세 포함)',
+                        'price': close_arr[idx],
+                        'strength': 'Strong'
+                    })
 
-        # 3. Piercing (관통) - 상승 신호
-        piercing = talib.CDLPIERCING(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(piercing):
-            if val != 0 and idx < len(df):
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
-                    'pattern': '⬆️ Piercing (관통)',
-                    'price': close_arr[idx],
-                    'strength': 'Medium'
-                })
+            # 3. Piercing (관통) - 상승 신호
+            piercing = talib.CDLPIERCING(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(piercing):
+                if val != 0 and idx < len(df):
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
+                        'pattern': '⬆️ Piercing (관통)',
+                        'price': close_arr[idx],
+                        'strength': 'Medium'
+                    })
 
-        # 4. Three White Soldiers (세 개의 흰 병사) - 강한 상승 신호
-        three_white = talib.CDL3WHITESOLDIERS(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(three_white):
-            if val != 0 and idx < len(df):
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
-                    'pattern': '⚪⚪⚪ Three White Soldiers (세 병사)',
-                    'price': close_arr[idx],
-                    'strength': 'Strong'
-                })
+            # 4. Three White Soldiers (세 개의 흰 병사) - 강한 상승 신호
+            three_white = talib.CDL3WHITESOLDIERS(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(three_white):
+                if val != 0 and idx < len(df):
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
+                        'pattern': '⚪⚪⚪ Three White Soldiers (세 병사)',
+                        'price': close_arr[idx],
+                        'strength': 'Strong'
+                    })
 
-        # 5. Bullish Harami (강세 하라미) - 반전 신호
-        harami = talib.CDLHARAMI(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(harami):
-            if val > 0 and idx < len(df):  # 양수만 강세
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
-                    'pattern': '💫 Bullish Harami (강세 하라미)',
-                    'price': close_arr[idx],
-                    'strength': 'Medium'
-                })
+            # 5. Bullish Harami (강세 하라미) - 반전 신호
+            harami = talib.CDLHARAMI(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(harami):
+                if val > 0 and idx < len(df):  # 양수만 강세
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
+                        'pattern': '💫 Bullish Harami (강세 하라미)',
+                        'price': close_arr[idx],
+                        'strength': 'Medium'
+                    })
 
-        # 6. Hammer (망치) - 반전 신호 (저점에서)
-        hammer = talib.CDLHAMMER(open_arr, high_arr, low_arr, close_arr)
-        for idx, val in enumerate(hammer):
-            if val != 0 and idx < len(df):
-                patterns.append({
-                    'date': df.index[idx].strftime('%Y-%m-%d'),
+            # 6. Hammer (망치) - 반전 신호 (저점에서)
+            hammer = talib.CDLHAMMER(open_arr, high_arr, low_arr, close_arr)
+            for idx, val in enumerate(hammer):
+                if val != 0 and idx < len(df):
+                    patterns.append({
+                        'date': df.index[idx].strftime('%Y-%m-%d'),
                     'pattern': '🔨 Hammer (망치)',
                     'price': close_arr[idx],
                     'strength': 'Medium'
@@ -307,7 +304,7 @@ with st.sidebar:
     """)
 
 # 메인 콘텐츠
-tabs = st.tabs(["🎯 추천 종목", "📈 차트 분석", "🚀 급등주 찾기", "📊 데이터 테이블", "ℹ️ 정보"])
+tabs = st.tabs(["🎯 추천 종목", "📈 차트 분석", "📊 데이터 테이블", "ℹ️ 정보"])
 
 with tabs[0]:
     st.header("KOSPI 전체 종목 분석")
@@ -336,13 +333,12 @@ with tabs[0]:
         # 추천 종목만 분석 (점수 >= 50점)
         max_stocks = None  # 모든 종목을 검토하되, 점수 필터링으로 추천 종목만 반환
 
-        # 통합 분석기 (스윙매매 + 급등주 + 급등신호)
-        comprehensive_analyzer = ComprehensiveAnalyzer()
+        # 스윙매매 분석기
+        analyzer = SwingTradeAnalyzer()
 
         # 캐시된 데이터 우선 사용
         cached_results = None
         if use_cached:
-            analyzer = SwingTradeAnalyzer()
             cached_results = analyzer.load_cached_analysis()
 
         # 캐시 체크박스가 켜져있고 캐시가 있으면 사용, 없으면 새로 분석
@@ -365,81 +361,49 @@ with tabs[0]:
         elif not use_cached:
             # 캐시 체크박스가 꺼져있으면 새로 분석
             # 진행 상황 콜백 함수
-            def update_progress(status_text, progress_ratio):
-                """통합 분석 진행 상황을 Streamlit UI에 표시"""
+            def update_progress(idx, total, name, ticker, success_count):
+                """스윙매매 분석 진행 상황을 Streamlit UI에 표시"""
+                progress_ratio = idx / total if total > 0 else 0
+
                 # 진행 상황 표시
                 with progress_placeholder.container():
-                    st.markdown(f"**진행 상황**: {status_text}")
+                    st.markdown(f"**분석 중**: {name} ({ticker}) - {idx}/{total}")
                     st.progress(progress_ratio)
 
                 # 현재 상태 표시
                 with current_stock_placeholder.container():
                     st.markdown(f"""
                     <div class="current-stock">
-                        <strong>분석 단계:</strong> {status_text}<br/>
-                        <strong>진행률:</strong> {progress_ratio*100:.0f}%
+                        <strong>현재 분석 종목:</strong> {name} ({ticker})<br/>
+                        <strong>진행률:</strong> {idx}/{total} ({progress_ratio*100:.1f}%)<br/>
+                        <strong>적합 종목:</strong> {success_count}개
                     </div>
                     """, unsafe_allow_html=True)
 
             try:
                 with status_placeholder.container():
-                    st.info(f"📊 추천 종목 분석 중 (스윙매매 기반)...")
+                    st.info(f"📊 스윙매매 종목 분석 중...")
 
-                # 통합 분석 실행
-                all_results = comprehensive_analyzer.analyze_all_in_one(
+                # 스윙매매 분석 실행
+                swing_results = analyzer.analyze_all_stocks(
                     max_stocks=max_stocks,
                     progress_callback=update_progress
                 )
 
-                # 스윙매매 결과
-                swing_results = all_results['swing_results']
-                soaring_results = all_results['soaring_results']
-                signal_results = all_results['signal_results']
-
                 if swing_results is not None and not swing_results.empty:
                     # CSV로 저장
-                    analyzer = SwingTradeAnalyzer()
                     analyzer.save_analysis_results(swing_results)
 
                     st.session_state.analyzer_results = swing_results
                     st.session_state.filtered_results = filter_swing_candidates(swing_results, min_score=min_score)
 
-                    # ===== 통합 캐시에 모든 분석 결과 저장 =====
+                    # ===== 통합 캐시에 분석 결과 저장 =====
                     st.session_state.cached_swing_results = swing_results
-                    st.session_state.cached_soaring_results = soaring_results
-                    st.session_state.cached_signal_results = signal_results
                     st.session_state.cached_analysis_date = datetime.now().date()
-
-                    # 급등주 결과 저장
-                    if soaring_results is not None and not soaring_results.empty:
-                        st.session_state.talib_results = soaring_results
-
-                    # 급등신호 결과 저장
-                    if signal_results is not None and not signal_results.empty:
-                        st.session_state.soaring_signal_results = signal_results
 
                     # 완료 메시지
                     with status_placeholder.container():
-                        col_swing, col_soaring, col_signal = st.columns(3)
-                        with col_swing:
-                            st.success(f"✅ 스윙매매\n{len(swing_results)}개 종목")
-                        with col_soaring:
-                            soaring_count = len(soaring_results) if soaring_results is not None and not soaring_results.empty else 0
-                            st.info(f"✅ 급등주(TA-Lib)\n{soaring_count}개 종목")
-                        with col_signal:
-                            signal_count = len(signal_results) if signal_results is not None and not signal_results.empty else 0
-                            st.success(f"✅ 급등신호\n{signal_count}개 종목")
-
-                    # 자동 탭 네비게이션 안내
-                    st.divider()
-                    st.markdown("""
-                    ### 📊 분석 결과 보기
-
-                    각 탭에서 상세한 결과를 확인할 수 있습니다:
-                    - **📈 차트 분석**: 개별 종목 차트 및 기술적 지표
-                    - **🚀 급등주 찾기**: TA-Lib 기반 패턴 (Morning Star, Bullish Breakaway)
-                    - **⚡ 급등신호**: 신호 기반 급등 예정 종목
-                    """)
+                        st.success(f"✅ 스윙매매 분석 완료: {len(swing_results)}개 종목")
 
                     st.session_state.is_analyzing = False
                 else:
@@ -1383,10 +1347,6 @@ with tabs[1]:
 
 
 with tabs[2]:
-    # TA-Lib 기반 급등주 찾기 UI 렌더링
-    render_talib_soaring_tab()
-
-with tabs[3]:
     st.header("📊 데이터 테이블")
 
     # ===== 헬퍼 함수: 데이터프레임을 HTML로 변환 (클릭 가능한 링크 포함) =====
@@ -1570,7 +1530,7 @@ with tabs[3]:
         else:
             st.info("데이터가 없습니다. 먼저 분석을 실행해주세요.")
 
-with tabs[4]:
+with tabs[3]:
     st.header("ℹ️ 정보")
 
     st.markdown("""
